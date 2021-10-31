@@ -5,6 +5,8 @@
 # 爬取租房数据的爬虫派生类
 
 import re
+import csv
+import time
 import threadpool
 from bs4 import BeautifulSoup
 from lib.item.zufang import *
@@ -14,6 +16,82 @@ from lib.utility.path import *
 from lib.zone.area import *
 from lib.zone.city import get_city
 import lib.utility.version
+
+
+def write_information(info, path):
+    with open(path, "a") as f:
+        csv_write = csv.writer(f)
+        csv_write.writerow(info)
+    return None
+
+
+def look_up_detail(url):
+    headers = create_headers()
+    response = requests.get(url, timeout=30, headers=headers)
+    html = response.content
+    soup = BeautifulSoup(html, "lxml")
+
+    ans_dict = {}
+
+    basic_info = soup.find('div', class_='content__article__info')
+    if basic_info:
+        info_dict = {}
+        for item in basic_info.find_all('li'):
+            try:
+                item.get_text()
+            except Exception as e:
+                print('!!!', e)
+                continue
+
+            if item.get_text() == '基本信息':
+                continue
+            if '：' in item.get_text():
+                try:
+                    spliced = item.get_text().split('：', 1)
+                    info_dict[spliced[0]] = spliced[1]
+                except Exception as e:
+                    print('split fail', e)
+                    print("=" * 20)
+        ans_dict['basic'] = str(info_dict)
+
+    facility_info = soup.find('ul', class_='content__article__info2')
+    if facility_info:
+        info_dict = {}
+        for item in facility_info.find_all('li'):
+            # if item.get_text() == '配套设施':
+            if len(item.find_all('i')) == 0:
+                continue
+            if 'fl oneline' not in str(item):
+                continue
+            if 'facility_no' in str(item['class']):
+                info_dict[item.get_text()] = False
+            else:
+                info_dict[item.get_text()] = True
+        ans_dict['facility'] = str(info_dict)
+
+    description = soup.find('div', class_='content__article__info3')
+    if description:
+        try:
+            text = description.find('p', {'data-el': 'houseComment'})
+            if text:
+                ans_dict['comment'] = text.get_text()
+            else:
+                print(url)
+        except Exception as e:
+            print('comment fail', e)
+            print("=" * 20)
+
+    subway_related = soup.find('div', {'class': re.compile('content__article__info4.*')})
+    subway_string = ''
+    if subway_related:
+        for item in subway_related.find_all('li'):
+            if '距离' in item.get_text():
+                for tmp in item.find_all('span'):
+                    subway_string += tmp.get_text()
+                    subway_string += ' '
+    ans_dict['subway'] = subway_string
+
+    return str(ans_dict)
 
 
 class ZuFangBaseSpider(BaseSpider):
@@ -55,7 +133,7 @@ class ZuFangBaseSpider(BaseSpider):
         chinese_district = get_chinese_district(district_name)
         chinese_area = chinese_area_dict.get(area_name, "")
         zufang_list = list()
-        page = 'http://{0}.{1}.com/zufang/{2}/'.format(city_name, SPIDER_NAME, area_name)
+        page = 'http://{0}.{1}.com/zufang/{2}/'.format(city_name, 'lianjia', area_name)
         print(page)
 
         headers = create_headers()
@@ -81,10 +159,10 @@ class ZuFangBaseSpider(BaseSpider):
         # 从第一页开始,一直遍历到最后一页
         headers = create_headers()
         for num in range(1, total_page + 1):
-            page = 'http://{0}.{1}.com/zufang/{2}/pg{3}'.format(city_name, SPIDER_NAME, area_name, num)
+            page = 'http://{0}.{1}.com/zufang/{2}/pg{3}'.format(city_name, 'lianjia', area_name, num)
             print(page)
             BaseSpider.random_delay()
-            response = requests.get(page, timeout=10, headers=headers)
+            response = requests.get(page, timeout=30, headers=headers)
             html = response.content
             soup = BeautifulSoup(html, "lxml")
 
@@ -112,6 +190,30 @@ class ZuFangBaseSpider(BaseSpider):
                     desc1 = house_elem.find('p', class_="content__list--item--title")
                     desc2 = house_elem.find('p', class_="content__list--item--des")
 
+                    # add detail url
+                    detail_url = page + desc1.find('a')['href']
+
+                    # add picture url
+                    picture_url = ''
+                    try:
+                        picture_url = house_elem.find('img')['data-src']
+                    except Exception as e:
+                        print('picture not found because', e)
+                        print("=" * 20)
+
+                    # add 'bikanhaofang'
+                    bikan = False
+                    if '必看好房' in str(desc1):
+                        bikan = True
+
+                    # add detailed information
+                    detail_info = ''
+                    try:
+                        detail_info = look_up_detail(detail_url)
+                    except Exception as e:
+                        error_info = str(e)+'\n'+detail_info+'\n'
+                        write_information(error_info, 'log.txt')
+
                 try:
                     if SPIDER_NAME == "lianjia":
                         price = price.text.strip()
@@ -137,7 +239,8 @@ class ZuFangBaseSpider(BaseSpider):
                     #     chinese_district, chinese_area, xiaoqu, layout, size, price))
 
                     # 作为对象保存
-                    zufang = ZuFang(chinese_district, chinese_area, xiaoqu, layout, size, price)
+                    zufang = ZuFang(chinese_district, chinese_area, xiaoqu, layout, size, price, picture_url,
+                                    detail_url, bikan, detail=detail_info)
                     zufang_list.append(zufang)
                 except Exception as e:
                     print("=" * 20 + " page no data")
@@ -147,6 +250,10 @@ class ZuFangBaseSpider(BaseSpider):
         return zufang_list
 
     def start(self):
+        # for log
+        localtime = time.asctime(time.localtime(time.time()))
+        log_path = 'error_info_'+localtime+'.txt'
+
         city = get_city()
         self.today_path = create_date_path("{0}/zufang".format(SPIDER_NAME), city, self.date_string)
         # collect_area_zufang('sh', 'beicai')  # For debugging, keep it here
@@ -191,5 +298,7 @@ class ZuFangBaseSpider(BaseSpider):
 
 
 if __name__ == '__main__':
-    # get_area_zufang_info("yt", "muping")
-    pass
+    # get_area_zufang_info("sh", "xinchang")
+    spider = ZuFangBaseSpider(SPIDER_NAME)
+    spider.get_area_zufang_info('sh', 'xinchang')
+    print()

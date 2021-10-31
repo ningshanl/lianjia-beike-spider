@@ -9,4 +9,4 @@ from lib.spider.zufang_spider import *
 if __name__ == "__main__":
     spider = ZuFangBaseSpider(SPIDER_NAME)
     spider.start()
-
+    print()

@@ -6,18 +6,26 @@
 
 
 class ZuFang(object):
-    def __init__(self, district, area, xiaoqu, layout, size, price):
+    def __init__(self, district, area, xiaoqu, layout, size, price, picture_url, detail_url, bikan, detail=''):
         self.district = district
         self.area = area
         self.xiaoqu = xiaoqu
         self.layout = layout
         self.size = size
         self.price = price
+        self.pic_url = picture_url
+        self.detail_url = detail_url
+        self.bikan = str(bikan)
+        self.detail = detail
 
     def text(self):
-        return self.district + "," + \
-                self.area + "," + \
-                self.xiaoqu + "," + \
-                self.layout + "," + \
-                self.size + "," + \
-                self.price
+        return self.district + "\t" + \
+               self.area + "\t" + \
+               self.xiaoqu + "\t" + \
+               self.layout + "\t" + \
+               self.size + "\t" + \
+               self.price + "\t" + \
+               self.pic_url + "\t" + \
+               self.detail_url + "\t" + \
+               self.bikan + "\t" + \
+               self.detail
